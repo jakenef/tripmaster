@@ -8,7 +8,7 @@ export class SurgeService {
   async sendSms(to: string, text: string): Promise<void> {
     try {
       await axios.post(
-        "https://api.surge.send/api/v1/messages",
+        `https://api.surge.app/accounts/${env.SURGE_ACCOUNT_ID}/messages`,
         {
           to,
           from: env.SURGE_PHONE_NUMBER,

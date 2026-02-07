@@ -4,6 +4,7 @@ import { env } from "./env";
 import logger from "./logger";
 import dashboardRoutes from "./routes/dashboard";
 import smsRoutes from "./routes/sms";
+import healthRoutes from "./routes/health";
 
 const app = express();
 app.use(bodyParser.json());
@@ -12,9 +13,7 @@ app.use(bodyParser.urlencoded({ extended: true }));
 // Routes
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/sms", smsRoutes);
-
-// Health check
-app.get("/health", (_req, res) => res.send("OK"));
+app.use("/health", healthRoutes);
 
 // Error handler
 app.use(

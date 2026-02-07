@@ -1,17 +1,17 @@
-beforeEach(() => {
-  tripAgent.reset();
-});
 import request from "supertest";
 import app from "../index";
 import { tripAgent } from "../agent/TripAgent";
 
 // Mock SurgeService to avoid real network calls
-jest.mock("../sms/SurgeService", () => {
-  return {
-    SurgeService: jest.fn().mockImplementation(() => ({
-      sendSms: jest.fn().mockResolvedValue({ success: true }),
-    })),
-  };
+const mockSendSms = jest.fn().mockResolvedValue({ success: true });
+jest.mock("../sms/SurgeService", () => ({
+  SurgeService: jest.fn().mockImplementation(() => ({
+    sendSms: mockSendSms,
+  })),
+}));
+
+beforeEach(() => {
+  tripAgent.reset();
 });
 
 // Use a TripAgent with polling disabled for test isolation
@@ -36,12 +36,15 @@ describe("TripAgent SMS flow", () => {
       "I want to go from NYC to LA March 1-10",
     );
     // Simulate follow-up (should trigger planning)
-    const reply = await tripAgent.handleSms("+1234567890", "That works!");
-    expect(reply).toMatch(/Trip planned|Trip plan ready/i);
+    await tripAgent.handleSms("+1234567890", "That works!");
+    expect(mockSendSms).toHaveBeenCalledWith(
+      "+1234567890",
+      expect.stringMatching(/Trip planned|Trip plan ready/i),
+    );
     const trip = tripAgent.getTrip();
     expect(trip?.plan).toBeDefined();
-    expect(trip?.plan.flight).toBeDefined();
-    expect(trip?.plan.hotel).toBeDefined();
+    expect(trip?.plan?.flight).toBeDefined();
+    expect(trip?.plan?.hotel).toBeDefined();
   });
 });
 
