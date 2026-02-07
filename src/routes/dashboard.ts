@@ -1,3 +1,9 @@
+import express from "express";
+import { tripAgent } from "../agent/TripAgent";
+import { SurgeService } from "../sms/SurgeService";
+
+const router = express.Router();
+
 // POST /api/dashboard/simulate-delay - Simulate flight delay
 router.post("/simulate-delay", async (req, res) => {
   const trip = tripAgent.getTrip();
@@ -9,7 +15,6 @@ router.post("/simulate-delay", async (req, res) => {
   trip.plan.flight.status = "delayed";
   trip.logs.push(`${new Date().toISOString()} - Simulated flight delay`);
   // Notify user
-  const { SurgeService } = require("../sms/SurgeService");
   const surge = new SurgeService();
   await surge.sendSms(trip.userPhone, "Demo: Your flight is now delayed.");
   res.json({ success: true });
@@ -26,17 +31,10 @@ router.post("/simulate-cancel", async (req, res) => {
   trip.plan.flight.status = "cancelled";
   trip.logs.push(`${new Date().toISOString()} - Simulated flight cancellation`);
   // Notify user
-  const { SurgeService } = require("../sms/SurgeService");
   const surge = new SurgeService();
   await surge.sendSms(trip.userPhone, "Demo: Your flight is now cancelled.");
   res.json({ success: true });
 });
-import express from "express";
-
-const router = express.Router();
-
-// GET /api/dashboard/trip - Get current trip plan
-import { tripAgent } from "../agent/TripAgent";
 
 router.get("/trip", (req, res) => {
   const trip = tripAgent.getTrip();

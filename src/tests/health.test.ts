@@ -1,6 +1,15 @@
 import request from "supertest";
 import app from "../index";
 
+// Mock SurgeService to avoid real network calls
+jest.mock("../sms/SurgeService", () => {
+  return {
+    SurgeService: jest.fn().mockImplementation(() => ({
+      sendSms: jest.fn().mockResolvedValue({ success: true }),
+    })),
+  };
+});
+
 describe("Health check", () => {
   it("should return OK", async () => {
     const res = await request(app).get("/health");

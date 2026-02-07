@@ -29,8 +29,10 @@ app.use(
   },
 );
 
-const server = app.listen(env.PORT, () => {
-  logger.info(`Server running on port ${env.PORT}`);
-});
+if (require.main === module) {
+  app.listen(env.PORT, () => {
+    logger.info(`Server running on port ${env.PORT}`);
+  });
+}
 
 export default app;

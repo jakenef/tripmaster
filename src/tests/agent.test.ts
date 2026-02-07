@@ -1,6 +1,24 @@
+beforeEach(() => {
+  tripAgent.reset();
+});
 import request from "supertest";
 import app from "../index";
 import { tripAgent } from "../agent/TripAgent";
+
+// Mock SurgeService to avoid real network calls
+jest.mock("../sms/SurgeService", () => {
+  return {
+    SurgeService: jest.fn().mockImplementation(() => ({
+      sendSms: jest.fn().mockResolvedValue({ success: true }),
+    })),
+  };
+});
+
+// Use a TripAgent with polling disabled for test isolation
+
+afterAll(() => {
+  tripAgent.stopPolling();
+});
 
 describe("TripAgent SMS flow", () => {
   it("should start a new trip and prompt for idea", async () => {
