@@ -21,6 +21,11 @@ export interface FlightOffer {
   from: string;
   to: string;
   depart: string;
+  arrive?: string;
+  airline?: string;
+  flightNumber?: string;
+  duration?: string;
+  stops?: number;
   price: string;
   bookingLink: string;
   status: "on-time" | "delayed" | "cancelled";

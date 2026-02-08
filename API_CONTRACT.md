@@ -30,6 +30,11 @@ export interface FlightOffer {
   from: string;
   to: string;
   depart: string; // ISO Date string
+  arrive?: string; // ISO Date string
+  airline?: string; // Airline carrier code (e.g., "AA")
+  flightNumber?: string; // Flight number (e.g., "AA1234")
+  duration?: string; // Flight duration (e.g., "PT5H30M")
+  stops?: number; // Number of stops (0 = non-stop)
   price: string; // Total price
   bookingLink: string; // URL to book
   status: "on-time" | "delayed" | "cancelled";

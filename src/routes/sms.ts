@@ -1,29 +1,32 @@
 import express from "express";
 import { tripAgent } from "../agent/TripAgent";
+import logger from "../logger";
 
 const router = express.Router();
 
 // POST /api/sms/webhook - Receive incoming SMS from Surge
 
 router.post("/webhook", async (req, res) => {
-  const { from, text, type, data } = req.body;
-  let sender = from;
-  let message = text;
-  // Only log key events
-  if (type === "message.received" && data) {
-    sender = data.conversation?.contact?.phone_number;
-    message = data.body;
-    console.log(`[Surge] RX from ${sender}: ${message}`);
-  } else if (type === "message.sent" && data) {
-    console.log(`[Surge] Sent: ${data.body}`);
-  } else if (type === "message.delivered" && data) {
-    console.log(`[Surge] Delivered: ${data.body}`);
+  const { type, data } = req.body;
+
+  // Only process incoming messages from users
+  if (type !== "message.received") {
+    return res.json({ success: true, message: "Event ignored" });
   }
+
+  if (!data) {
+    return res.status(400).json({ success: false, message: "Missing data" });
+  }
+
+  const sender = data.conversation?.contact?.phone_number;
+  const message = data.body;
+
   if (!sender || !message) {
     return res
       .status(400)
-      .json({ success: false, message: "Missing from/text" });
+      .json({ success: false, message: "Missing sender or message" });
   }
+
   try {
     await tripAgent.handleSms(sender, message);
     res.json({ success: true });

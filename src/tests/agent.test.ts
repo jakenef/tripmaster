@@ -4,11 +4,13 @@ import { tripAgent } from "../agent/TripAgent";
 
 // Mock SurgeService to avoid real network calls
 const mockSendSms = jest.fn().mockResolvedValue({ success: true });
-jest.mock("../sms/SurgeService", () => ({
-  SurgeService: jest.fn().mockImplementation(() => ({
-    sendSms: mockSendSms,
-  })),
-}));
+jest.mock("../sms/SurgeService", () => {
+  return {
+    SurgeService: jest.fn().mockImplementation(() => ({
+      sendSms: mockSendSms,
+    })),
+  };
+});
 
 beforeEach(() => {
   tripAgent.reset();

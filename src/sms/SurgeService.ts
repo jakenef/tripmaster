@@ -2,7 +2,6 @@
 
 import axios from "axios";
 import { env } from "../env";
-import logger from "../logger";
 
 export class SurgeService {
   async sendSms(to: string, text: string): Promise<void> {
@@ -21,9 +20,7 @@ export class SurgeService {
           },
         },
       );
-      logger.info(`Sent SMS to ${to}`);
     } catch (err) {
-      logger.error("Failed to send SMS", { to, text, error: err });
       throw err;
     }
   }

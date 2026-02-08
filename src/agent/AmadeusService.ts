@@ -27,7 +27,7 @@ export class AmadeusService {
     // If it looks like an IATA code, return it directly
     if (/^[A-Z]{3}$/.test(keyword.toUpperCase())) return keyword.toUpperCase();
 
-    logger.info("Resolving location code", { keyword });
+    // No logging
     try {
       const token = await getAccessToken();
       const res = await axios.get(
@@ -43,22 +43,11 @@ export class AmadeusService {
       );
       const data = res.data as any;
       if (data.data && data.data.length > 0) {
-        logger.info("Resolved location", {
-          keyword,
-          code: data.data[0].iataCode,
-        });
         return data.data[0].iataCode;
       }
-      logger.warn("Amadeus location search returned no results", {
-        keyword,
-        data: JSON.stringify(data),
-      });
       return null;
     } catch (err: any) {
-      logger.warn("Amadeus location search failed", {
-        error: err?.message,
-        response: err.response?.data,
-      });
+      // No logging
       return null;
     }
   }
@@ -66,7 +55,7 @@ export class AmadeusService {
   async searchFlights(
     constraints: TripConstraints,
   ): Promise<Omit<FlightOffer, "status">[]> {
-    logger.info("Searching flights", { constraints });
+    // No logging
     try {
       const token = await getAccessToken();
       // Validate date format YYYY-MM-DD
@@ -94,35 +83,35 @@ export class AmadeusService {
       );
       const data = res.data as any;
       if (!data.data || !data.data.length) {
-        logger.warn("No flights found from Amadeus", { params });
         return [];
       }
       return data.data.map((offer: any, i: number) => {
         const itinerary = offer.itineraries[0];
         const segment = itinerary.segments[0];
+        const lastSegment = itinerary.segments[itinerary.segments.length - 1];
         return {
           id: offer.id || `flight${i + 1}`,
           from: segment.departure.iataCode,
-          to: segment.arrival.iataCode,
+          to: lastSegment.arrival.iataCode,
           depart: segment.departure.at,
+          arrive: lastSegment.arrival.at,
+          airline: segment.carrierCode,
+          flightNumber: `${segment.carrierCode}${segment.number}`,
+          duration: itinerary.duration,
+          stops: itinerary.segments.length - 1,
           price: offer.price.total,
-          bookingLink: `https://www.google.com/travel/flights?q=Flights+from+${segment.departure.iataCode}+to+${segment.arrival.iataCode}+on+${segment.departure.at.split("T")[0]}`,
+          bookingLink: `https://www.google.com/travel/flights?q=Flights+from+${segment.departure.iataCode}+to+${lastSegment.arrival.iataCode}+on+${segment.departure.at.split("T")[0]}`,
         };
       });
     } catch (err: any) {
-      logger.error("Amadeus flight search failed", {
-        error: err?.message,
-        stack: err?.stack,
-      });
       return [];
     }
   }
 
   async searchHotels(constraints: TripConstraints): Promise<HotelOffer[]> {
-    logger.info("Searching hotels", { constraints });
+    // No logging
     try {
       const token = await getAccessToken();
-      // Ensure city code is 3 letters (IATA)
       let cityCode = "LAX";
       if (constraints.to && constraints.to.length === 3) {
         cityCode = constraints.to.toUpperCase();
@@ -142,7 +131,6 @@ export class AmadeusService {
         .slice(0, 5)
         .map((h: any) => h.hotelId);
       if (!hotelIds.length) {
-        logger.warn("No hotels found in city", { cityCode });
         return [];
       }
       const offersRes = await axios.get(
@@ -172,7 +160,6 @@ export class AmadeusService {
       );
       const offersData = offersRes.data as any;
       if (!offersData.data || !offersData.data.length) {
-        logger.warn("No hotel offers found", { hotelIds });
         return [];
       }
       return offersData.data.map((hotel: any, i: number) => {
@@ -188,10 +175,7 @@ export class AmadeusService {
         };
       });
     } catch (err: any) {
-      logger.error("Amadeus hotel search failed", {
-        error: err?.message,
-        stack: err?.stack,
-      });
+      // No logging
       return [];
     }
   }

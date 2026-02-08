@@ -7,6 +7,12 @@ import { AmadeusService } from "./AmadeusService";
 
 // Singleton agent for a single active trip
 class TripAgent {
+  // Trip history for memory
+  tripHistory: Array<{
+    message: string;
+    constraints: TripConstraints;
+    plan: TripPlan | null;
+  }> = [];
   reset() {
     this.trip = null;
   }
@@ -82,11 +88,8 @@ class TripAgent {
   }
 
   log(action: string, details?: any) {
-    const entry = `${new Date().toISOString()} - ${action} - ${JSON.stringify(details || {})}`;
-    logger.info(entry);
-    if (this.trip) {
-      this.trip.logs.push(entry);
-    }
+    // Only log Amadeus requests/responses; no Surge logging
+    return;
   }
 
   // For demo: respond to SMS with next prompt, using OpenAI
@@ -102,31 +105,80 @@ class TripAgent {
 
     if (!this.trip || this.trip.userPhone !== userPhone) {
       this.startTrip(userPhone);
+      this.tripHistory = [];
       await this.surge.sendSms(
         userPhone,
-        "Hi! Tell me your trip idea (where, when, any constraints)?",
+        "Hi! I'm your travel assistant. Where are you dreaming of going, and when?",
       );
       return;
     }
     this.log("Received SMS", { userPhone, message });
+    // Add message to trip history
+    this.tripHistory.push({
+      message,
+      constraints: { ...this.trip.constraints },
+      plan: this.trip.plan,
+    });
+
+    // Always use trip history for context
+    const historyText = this.tripHistory
+      .map(
+        (entry, i) =>
+          `Message ${i + 1}: "${entry.message}" Constraints: ${JSON.stringify(entry.constraints)} Plan: ${entry.plan ? JSON.stringify(entry.plan) : "None"}`,
+      )
+      .join("\n");
+
     if (this.trip.state === "collecting_info") {
       // Use OpenAI to parse constraints and confirm
       let aiReply = "";
       const today = new Date().toISOString().split("T")[0];
+      const currentConstraints = this.trip.constraints || {};
+
+      // --- Location resolution ---
+      const resolveIata = async (name: string | null) => {
+        if (!name) return null;
+        try {
+          return await this.amadeus.getLocationCode(name);
+        } catch {
+          return null;
+        }
+      };
+      function getNearbyDates(
+        dateStr: string | null,
+        range: number = 3,
+      ): string[] {
+        if (!dateStr) return [];
+        const base = new Date(dateStr);
+        if (isNaN(base.getTime())) return [];
+        const dates: string[] = [];
+        for (let offset = -range; offset <= range; offset++) {
+          const d = new Date(base);
+          d.setDate(base.getDate() + offset);
+          dates.push(d.toISOString().slice(0, 10));
+        }
+        return dates;
+      }
       try {
         aiReply = await this.reasoning.chat(
-          `Current date is ${today}. User message: "${message}". 
-Extract trip details as JSON:
+          `Current date is ${today}.
+Trip history:
+${historyText}
+
+User message: "${message}"
+
+Extract trip details as JSON. Use context from history to infer missing info. Only output JSON.
+JSON Schema:
 {
-  "originName": "city name",
-  "destinationName": "city name",
-  "departDate": "YYYY-MM-DD",
-  "returnDate": "YYYY-MM-DD",
-  "travelers": number
+  "originIata": "IATA code or null",
+  "destinationIata": "IATA code or null",
+  "originName": "city name or null",
+  "destinationName": "city name or null",
+  "departDate": "YYYY-MM-DD or null",
+  "returnDate": "YYYY-MM-DD or null",
+  "travelers": number or null
 }
-If missing, use null. Convert relative dates to YYYY-MM-DD.
-Do NOT guess IATA codes, just extract names.
-Only output JSON.`,
+Convert relative dates to YYYY-MM-DD.
+`,
         );
       } catch (err: any) {
         this.log("OpenAI reasoning failed", {
@@ -141,7 +193,11 @@ Only output JSON.`,
       }
       let parsed: any = {};
       try {
-        parsed = JSON.parse(aiReply);
+        const jsonStr = aiReply
+          .replace(/```json/g, "")
+          .replace(/```/g, "")
+          .trim();
+        parsed = JSON.parse(jsonStr);
       } catch (err: any) {
         this.log("Failed to parse OpenAI JSON", {
           aiReply,
@@ -150,13 +206,16 @@ Only output JSON.`,
         parsed = {};
       }
 
-      // Resolve IATA codes via Amadeus
-      const fromCode = await this.amadeus.getLocationCode(
-        parsed.originName || "",
-      );
-      const toCode = await this.amadeus.getLocationCode(
-        parsed.destinationName || "",
-      );
+      // Resolve IATA codes via Amadeus or use inferred
+      let fromCode = parsed.originIata;
+      if (!fromCode && parsed.originName) {
+        fromCode = await this.amadeus.getLocationCode(parsed.originName);
+      }
+
+      let toCode = parsed.destinationIata;
+      if (!toCode && parsed.destinationName) {
+        toCode = await this.amadeus.getLocationCode(parsed.destinationName);
+      }
 
       // Check for resolution failures
       const resolutionErrors: string[] = [];
@@ -187,10 +246,9 @@ Only output JSON.`,
         travelers: parsed.travelers,
       };
 
-      // Merge with existing constraints
-      const currentConstraints = this.trip.constraints || {};
+      // Merge with existing constraints, never overwrite
       const mergedConstraints = {
-        ...currentConstraints,
+        ...this.trip.constraints,
         ...Object.fromEntries(
           Object.entries(newConstraints).filter(
             ([_, v]) => v !== null && v !== undefined,
@@ -199,6 +257,10 @@ Only output JSON.`,
       };
 
       this.trip.constraints = mergedConstraints as TripConstraints;
+      // Update trip history with new constraints
+      this.tripHistory[this.tripHistory.length - 1].constraints = {
+        ...mergedConstraints,
+      };
 
       // Validate required fields
       const missing = [];
@@ -207,10 +269,9 @@ Only output JSON.`,
       if (!mergedConstraints.depart) missing.push("departure date");
 
       if (missing.length > 0) {
-        await this.surge.sendSms(
-          userPhone,
-          `I need a bit more info. Please provide: ${missing.join(", ")}.`,
-        );
+        const prompt = `You are a helpful travel assistant.\nUser message: "${message}"\nCurrent Plan Status:\n- Origin: ${mergedConstraints.from || "Not set"}\n- Destination: ${mergedConstraints.to || "Not set"}\n- Date: ${mergedConstraints.depart || "Not set"}\n\nMissing information: ${missing.join(", ")}.\n\nWrite a natural, friendly SMS response (max 1 sentence) to ask for the missing details. Don't be robotic.`;
+        const replyMsg = await this.reasoning.chat(prompt);
+        await this.surge.sendSms(userPhone, replyMsg.replace(/"/g, ""));
         return;
       }
 
@@ -225,7 +286,10 @@ Only output JSON.`,
       // Plan trip
       let plan: TripPlan | null = null;
       try {
-        plan = await this.planTrip(mergedConstraints);
+        plan = await this.planTripWithFlexibleDates(
+          mergedConstraints,
+          getNearbyDates,
+        );
       } catch (err: any) {
         this.log("Trip planning failed", {
           error: err?.message,
@@ -250,6 +314,8 @@ Only output JSON.`,
       this.trip.plan = plan;
       this.trip.state = "monitoring";
       this.log("Trip state updated", { state: "monitoring", plan });
+      // Update trip history with new plan
+      this.tripHistory[this.tripHistory.length - 1].plan = plan;
       // Notify user
       try {
         await this.surge.sendSms(
@@ -262,7 +328,6 @@ Only output JSON.`,
           stack: err?.stack,
         });
       }
-      // Note: We already sent the detailed plan above, so we don't need a second "Trip planned" message.
       return;
     }
     if (this.trip.state === "planning") {
@@ -302,23 +367,33 @@ Only output JSON.`,
     }
   }
 
-  // Plan trip using AmadeusService
-  private async planTrip(
+  // Plan trip with flexible date search
+  private async planTripWithFlexibleDates(
     constraints: TripConstraints,
+    getNearbyDates: (dateStr: string | null, range?: number) => string[],
   ): Promise<TripPlan | null> {
-    const flightsRaw = await this.amadeus.searchFlights(constraints);
-    const hotels = await this.amadeus.searchHotels(constraints);
-
+    // Try ±3 days around requested date
+    const dates = constraints.depart
+      ? getNearbyDates(constraints.depart, 3)
+      : [];
+    let flightsRaw: any[] = [];
+    let hotels: any[] = [];
+    for (const date of dates.length ? dates : [constraints.depart]) {
+      const searchConstraints = { ...constraints, depart: date };
+      flightsRaw = await this.amadeus.searchFlights(searchConstraints);
+      hotels = await this.amadeus.searchHotels(searchConstraints);
+      if (flightsRaw.length && hotels.length) {
+        break;
+      }
+    }
     if (!flightsRaw.length || !hotels.length) {
       return null;
     }
-
     const flightOptions = flightsRaw.map((f) => ({
       ...f,
       status: "on-time" as const,
     }));
     const hotelOptions = hotels;
-
     const flight = flightOptions[0];
     const hotel = hotelOptions[0];
     return { flight, hotel, flightOptions, hotelOptions };
